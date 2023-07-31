@@ -1,0 +1,160 @@
+#plt is for plotting
+import matplotlib.pyplot as plt
+#os is for controlling windows explorer mainly
+import os
+#for regexp operator stuff
+import re
+#Making HDF5 files!!
+import h5py
+
+
+
+#Separate the entire file into an array that has comma separated values.
+
+os.chdir('C:/users/jadse/Desktop/Postdoc/Data/SECCMTesting/230713/')
+file='230713Test.asc'
+
+with open(file, 'r') as f:
+    data=[]
+    for i in f.readlines():
+        data.append(i.split(','))
+        
+#This gives the position of the start of all the columns.
+
+columnPosition=[]
+columnPosition.append(0)
+for i in range(len(data)):
+    #Do I need to add another 'if' statement for if the length of the string in data[i] is 1 long? Does indexing a string that is one long default to just a list and not a list of lists?
+    if repr(data[i][0]) == repr('\n'):
+        #print(repr(data[i][0]))
+        columnPosition.append(i)
+
+#This places all the identified positions into a list of lists called 'stringArrays'.
+
+stringArrays=[0]*len(columnPosition)
+increment=columnPosition[0]+1
+flag=[0]*len(columnPosition)
+
+for i in range(len(columnPosition)-1):
+    stringArrays[i]=[0]*(columnPosition[i+1]-columnPosition[i])
+    for ii in range(columnPosition[i+1]-columnPosition[i]):
+        stringArrays[i][ii]=data[increment]
+        increment+=1
+        
+    
+    #This gets rid of an unwanted '\n' in the last column.
+    stringArrays[i].pop()
+        
+    #This lets us know if an information column follows the dataset. This could mean that this is a specific type of scan that we can quickly identify the type of scan with.
+    if(len(stringArrays[i]) < 20):
+        flag[i]=0
+        
+        #Convert the string into floats. The 3 in range skips over the headings and leaves them as weird strings.
+        for iii in range(1,len(stringArrays[i])-1,1):
+            increment2=0
+            for iiii in stringArrays[i][iii]:
+                stringArrays[i][iii][increment2] = float(iiii)
+                increment2+=1
+                
+    elif(flag[i-1]==0):
+        flag[i]=2
+        
+        #Convert the string into floats. The 3 in range skips over the headings and leaves them as weird strings.
+        for iii in range(3,len(stringArrays[i]),1):
+            increment2=0
+            for iiii in stringArrays[i][iii]:
+                stringArrays[i][iii][increment2] = float(iiii)
+                increment2+=1
+    
+    else:
+        flag[i]=1
+        
+        #Convert the string into floats. The 3 in range skips over the headings and leaves them as weird strings.
+        for iii in range(3,len(stringArrays[i]),1):
+            increment2=0
+            for iiii in stringArrays[i][iii]:
+                stringArrays[i][iii][increment2] = float(iiii)
+                increment2+=1
+                
+                
+                
+                
+                
+#Export an HDF5 file with the information stored in stringArrays
+
+os.chdir('C:/users/jadse/Desktop/Postdoc/Data/SECCMTesting/230713/') #Save .HDF5 here.
+
+def getColumn(listofLists,column):
+    return[item[column] for item in listofLists[3:]]
+
+user='jon'
+date='20230713'
+
+with h5py.File('testExport.hdf5','w') as f:
+    
+    #This is how you can assign user
+    metaData = f.create_group(user+'/'+date)
+    metaData.attrs['InstrumentName'] = 'GloveboxELP3'
+    metaData.attrs['MapDimensions'] = '5x5'
+    metaData.attrs['IsDannyCool'] = 'Yes'
+    
+    #This is for the metadata from the notebook file.
+    for i in range(len(stringArrays)-1):
+        
+        if(flag[i]==2): #This means this is the first scan of a series. This means we must skip the first line and go to the second.
+            #print('h')
+            ii=0
+            rowNumber=1
+            iiiiii=0 #This is used for column names to make sure they always increment up.
+            groupName=stringArrays[i][1][0] #Here is where we skip the first line and go to the second line.
+            data = metaData.create_group(groupName)
+            data.attrs['ScanCycleLength'] = rowNumber
+            for ii in range(len(stringArrays[i][2])): #Should stringArrays[i][#] be a 1 or a 2? 2 worked and 1 didn't?
+                data.create_dataset('Sweep'+str(rowNumber)+'Column'+str(iiiiii),data=getColumn(stringArrays[i],ii))
+                iiiiii+=1 #This is used for column names to make sure they always increment up.
+        
+        elif(flag[i]==1):
+            rowNumber+=1
+            iiiiii=0 #This is used for column names to make sure they always increment up.
+            ii=0
+            data.attrs['ScanCycleLength'] = rowNumber
+            while ii < len(stringArrays[i][0]):
+                data.create_dataset('Sweep'+str(rowNumber)+'Column'+str(iiiiii),data=getColumn(stringArrays[i],ii))
+                iiiiii+=1 #This is used for column names to make sure they always increment up.
+                ii+=1
+                
+        elif(flag[i]==0):
+            
+            #print('k')
+            
+            #The below code assigns the first row of attributes to the first column, 'Column0'.
+            
+            if(flag[i-1]==1):
+                for iii in range(len(stringArrays[i][:])):
+                    for ii in range(len(stringArrays[i][0])):
+                        string=stringArrays[i][0][ii]
+                        #f[user][date][stringArrays[i-1][0][0]]['Column0'].attrs[string] = stringArrays[i][1][ii]
+                        data.attrs[string+str(iii)] = stringArrays[i][1][ii]
+            
+
+
+            
+            
+#Useful code for you to play with an .HDF5 file.
+
+def getSeriesString(stringNumber):
+    return list(f[user][date].keys())[stringNumber]
+
+filename='testexport.hdf5'
+with h5py.File(filename,'r') as f:
+    
+    print(list(f[user][date][getSeriesString(2)].keys())) #These 2 lines give the same thing!
+    print(list(f[user][date].attrs.items()))
+    print(list(f[user][date][getSeriesString(3)].attrs.items()))
+    
+    scanNumber=10
+    sweepNumber=3 #For OCP and PDP, this number should never change from 1.
+    plt.figure()
+    plt.plot(list(f[user][date][getSeriesString(scanNumber)]['Sweep'+str(sweepNumber)+'Column4']),list(f[user][date][getSeriesString(scanNumber)]['Sweep'+str(sweepNumber)+'Column2']))
+    
+
